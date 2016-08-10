@@ -37,19 +37,11 @@ def dbg(txt):
         info('[dbg] '+txt)
 
 def import_file(full_path_to_module):
-    # http://stackoverflow.com/a/68628
-    #try:
-    if True:
-	module_dir, module_file = os.path.split(full_path_to_module)
-	module_name, module_ext = os.path.splitext(module_file)
-	save_cwd = os.getcwd()
-	os.chdir(module_dir)
-        sys.path.append(module_dir)
-	module_obj = __import__(module_name)
-	module_obj.__file__ = full_path_to_module
-	globals()[module_name] = module_obj
-	os.chdir(save_cwd)
-        return module_obj
+    # Partially from: http://stackoverflow.com/a/68628
+    module_dir, module_file = os.path.split(full_path_to_module)
+    module_name, _ = os.path.splitext(module_file)
+    sys.path.append(module_dir)
+    return __import__(module_name)
 
 
 class Hasher:
