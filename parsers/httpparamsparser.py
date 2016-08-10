@@ -3,7 +3,9 @@
 import urlparse
 
 class HttpParamsParser:
-    name = 'HttpParamsParser'
+
+    def name(self):
+        return self.__class__.__name__
 
     def check(self, data):
         try:
@@ -14,9 +16,13 @@ class HttpParamsParser:
 
     def parse(self, data):
         vals = urlparse.parse_qsl(data, True, True)
-        out = {}
+        out = []
         for val in vals:
-            out[val[0]] = val[1]
+            # Instead of using parameter values name too:
+            #out[val[0]] = val[1]
+            # go only with their values:
+            out.append(val[1])
+
         return out
 
 

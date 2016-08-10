@@ -1,7 +1,9 @@
 #!/usr/bin/python
 
 class DateTimestampParser:
-    name = 'HttpRequestParser'
+
+    def name(self):
+        return self.__class__.__name__
 
     def check(self, data):
         return False
