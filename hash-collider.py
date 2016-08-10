@@ -38,19 +38,18 @@ def dbg(txt):
 
 def import_file(full_path_to_module):
     # http://stackoverflow.com/a/68628
-    try:
-	import os
+    #try:
+    if True:
 	module_dir, module_file = os.path.split(full_path_to_module)
 	module_name, module_ext = os.path.splitext(module_file)
 	save_cwd = os.getcwd()
 	os.chdir(module_dir)
+        sys.path.append(module_dir)
 	module_obj = __import__(module_name)
 	module_obj.__file__ = full_path_to_module
 	globals()[module_name] = module_obj
 	os.chdir(save_cwd)
         return module_obj
-    except:
-	raise ImportError
 
 
 class Hasher:
@@ -99,18 +98,21 @@ class Hasher:
 class HashCollider:
     hasher = None
     elements = set()
-    parsers = []
+    parsers = {}
 
     def __init__(self, data):
         hasher = Hasher(data)
         self.register_parsers()
 
     def load_parser(self, parser):
-        dbg("Loading parser: '%s'" % parser)
-        mod = import_file(parser)
-        for objs in mod.__dict__.keys():
-            if 'Parser' in objs:
-                dbg("Found parser's definition: %s" % objs)
+        parser_name = os.path.splitext(os.path.basename(parser))[0].lower()
+        if not parser_name in [x.lower() for x in self.parsers.keys()]:
+            dbg("Loading parser: '%s'" % parser)
+            mod = import_file(parser)
+            for objs in mod.__dict__.keys():
+                if 'Parser' in objs:
+                    dbg("Found parser's definition: %s" % objs)
+                    self.register_parsers(getattr(mod, objs)())
 
 
     def register_parsers(self, parsers=None):
@@ -118,8 +120,8 @@ class HashCollider:
             if hasattr(parser, 'check'):
                 if hasattr(parser, 'parse'):
                     if hasattr(parser, 'name'):
-                        dbg("Registering new parser: %s" % parser.name)
-                        self.parsers.append(parser)
+                        dbg("Registering new parser: %s" % parser.name())
+                        self.parsers[parser.name()] = parser
                     else:
                         raise InvalidParserException, "Parser registration failed: no `name` attribute found"
                 else:
@@ -129,7 +131,7 @@ class HashCollider:
 
         if parsers == None:
             # Registering all of the available parsers.
-            currpath = os.path.realpath(__file__)
+            currpath = os.path.dirname(os.path.realpath(__file__))
             modules_path = os.path.join(currpath, 'parsers')
             for top, _, parsers in os.walk(modules_path):
                 map(self.load_parser, map(lambda x: os.path.join(top, x), parsers))
@@ -174,9 +176,9 @@ class HashCollider:
 
     def parse(self, data, parser1=None):
         if not parser1:
-            for parser in self.parsers:
+            for parser_name, parser in self.parsers.items():
                 if parser.check(data):
-                    dbg("Parser %s agreed to process: ['%s']..." % (parser.name, data[:64]))
+                    dbg("Parser %s agreed to process: ['%s']..." % (parser_name, data[:64]))
                     return parser.parse(data)
 
             raise ParserNotFoundException
@@ -189,7 +191,7 @@ class HashCollider:
             return ( set(itertools.compress(items, mask)) for mask in itertools.product(*[[0,1]]*len(items)))
         
         elements = set()
-        separators = ['', '+', '|', '.', '-']
+        separators = ['', '+', '|', '.']
         for comb in combinations(self.elements):
             for sep in separators:
                 elements.add(sep.join([str(c) for c in comb]))
@@ -210,11 +212,11 @@ class HashCollider:
         return '%s("%s") == "%s"' % (self.hasher.hashing_algo().name, data, self.data)
 
     def collide(self):
-        dbg("Generating about %d combinations of %d elements" % (2**(len(self.elements)), len(self.elements)))
+        warning("Generating about %d combinations of %d elements" % (2**(len(self.elements)), len(self.elements)))
         elements = self.generate_combinations()
 
         workers = min(len(elements), multiprocessing.cpu_count() * 4)
-        dbg("Engaging hashing loop over %d candidates with %d workers. Stay tight." % (len(elements), workers))
+        warning("Engaging hashing loop over %d candidates with %d workers. Stay tight." % (len(elements), workers))
 
         error("Not implemented yet")
         return False
