@@ -1,6 +1,7 @@
 #!/usr/bin/python
 
 import urlparse
+from commons import *
 
 class HttpParamsParser:
 

@@ -1,12 +1,10 @@
 #!/usr/bin/python
 
-import os
-import re
-import sys
 import urllib
 import hashlib
 import itertools
 import multiprocessing
+from commons import *
 from myexceptions import *
 from ctypes import c_char_p
 
@@ -19,29 +17,6 @@ try:
     import importlib
 except ImportError:
     raise ImportError("Could not import `importlib` module. Try with: pip install importlib")
-
-
-DEBUG = True
-
-def info(txt):
-    sys.stderr.write(txt + '\n')
-
-def warning(txt):
-    info('[?] ' + txt)
-
-def error(txt):
-    info('[!] ' + txt)
-
-def dbg(txt):
-    if DEBUG:
-        info('[dbg] '+txt)
-
-def import_file(full_path_to_module):
-    # Partially from: http://stackoverflow.com/a/68628
-    module_dir, module_file = os.path.split(full_path_to_module)
-    module_name, _ = os.path.splitext(module_file)
-    sys.path.append(module_dir)
-    return __import__(module_name)
 
 
 class Hasher:
@@ -97,6 +72,13 @@ class HashCollider:
         self.register_parsers()
 
     def load_parser(self, parser):
+        def import_file(full_path_to_module):
+            # Partially from: http://stackoverflow.com/a/68628
+            module_dir, module_file = os.path.split(full_path_to_module)
+            module_name, _ = os.path.splitext(module_file)
+            sys.path.append(module_dir)
+            return __import__(module_name)
+
         parser_name = os.path.splitext(os.path.basename(parser))[0].lower()
         if not parser_name in [x.lower() for x in self.parsers.keys()]:
             dbg("Loading parser: '%s'" % parser)

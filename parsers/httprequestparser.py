@@ -1,5 +1,7 @@
 #!/usr/bin/python
 
+from commons import *
+
 class HttpRequestParser:
 
     def name(self):
