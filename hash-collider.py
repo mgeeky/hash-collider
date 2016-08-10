@@ -1,23 +1,45 @@
 #!/usr/bin/python
 
+import math
+import time
 import urllib
+import signal
 import hashlib
 import itertools
 import multiprocessing
 from commons import *
 from myexceptions import *
-from ctypes import c_char_p
-
-try:
-    import parmap
-except ImportError:
-    raise ImportError("Could not import `parmap` module. Try with: pip install parmap")
+from functools import partial
+from multiprocessing.managers import BaseManager
 
 try:
     import importlib
 except ImportError:
     raise ImportError("Could not import `importlib` module. Try with: pip install importlib")
 
+WORKERS = multiprocessing.cpu_count() * 4
+main_hasher = None
+
+def init_worker():
+    # http://stackoverflow.com/a/6191991
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+
+
+# In order to make this worker function picklable, it must be defined
+# in the top-level of a module, instead of a static method within HashCollider
+# class.
+def hash_collider_worker(stopevent, hasher, inputs):
+    if not inputs or len(inputs) == 0:
+        return False
+
+    for i in range(len(inputs)):
+        inp = inputs[i]
+        if stopevent.is_set():
+            return False
+        if hasher.check(inp):
+            stopevent.set()
+            return inp
+    return False
 
 class Hasher:
     hashlens = {}
@@ -26,12 +48,12 @@ class Hasher:
     checks = 0
     
     def __init__(self, data):
-        self.init_hash_lens
+        self.init_hash_lens()
         self.set_hash(data)
 
     def init_hash_lens(self):
         for algo in hashlib.algorithms:
-            hashlens[algo] = len(hashlib.__get_builtin_constructor(algo)('test').hexdigest())
+            self.hashlens[algo] = len(getattr(hashlib, algo)('test').hexdigest())
 
     def get_hash(self):
         return self.data
@@ -50,7 +72,7 @@ class Hasher:
             for a, l in self.hashlens.items():
                 if l == len(self.data):
                     with self.incr_lock:
-                        self.hashing_algo = hashlib.__get_builtin_constructor(a)
+                        self.hashing_algo = getattr(hashlib, a)
         return self.hashing_algo
 
     def hashit(self, data):
@@ -66,10 +88,12 @@ class HashCollider:
     hasher = None
     elements = set()
     parsers = {}
+    separators = ['', '+', '|', '.']
 
-    def __init__(self, data):
-        hasher = Hasher(data)
+    def __init__(self, hasher):
+        self.hasher = hasher
         self.register_parsers()
+        dbg("Dealing with data hashed using %s" % self.hasher.hashing_algo().name )
 
     def load_parser(self, parser):
         def import_file(full_path_to_module):
@@ -159,53 +183,84 @@ class HashCollider:
         else:
             return parser1.parse(data)
 
+    def number_of_permutations(self):
+        # Permutations without repetitions
+        items = self.elements
+        def V(n, k):
+            return math.factorial(n)/math.factorial(n-k)
+        return sum(map(lambda x: V(len(items), x), range(len(items))))
+
     def generate_combinations(self):
-        def combinations(items):
-            # http://stackoverflow.com/a/6542458
-            return ( set(itertools.compress(items, mask)) for mask in itertools.product(*[[0,1]]*len(items)))
+        def permutations(items):
+            for i in range(len(items)):
+                yield itertools.permutations(items, i)
         
         elements = set()
-        separators = ['', '+', '|', '.']
-        for comb in combinations(self.elements):
-            for sep in separators:
-                elements.add(sep.join([str(c) for c in comb]))
+        for comb in permutations(self.elements):
+            for p in comb:
+                for sep in self.separators:
+                    elements.add(sep.join([str(c) for c in p]))
 
         return elements
-
-    @staticmethod
-    def _worker(inputs, stopevent, result):
-        for inp in inputs:
-            if stopevent.is_set():
-                return 
-            if self.hasher.check(inp):
-                result.value = inp
-                stopevent.set()
-                return
 
     def print_result(self, data):
         return '%s("%s") == "%s"' % (self.hasher.hashing_algo().name, data, self.data)
 
     def collide(self):
-        warning("Generating about %d combinations of %d elements" % (2**(len(self.elements)), len(self.elements)))
-        elements = self.generate_combinations()
+        warning("Generating about %d samples out of %d elements" % \
+            (len(self.separators) * self.number_of_permutations(), len(self.elements)))
 
-        workers = min(len(elements), multiprocessing.cpu_count() * 4)
-        warning("Engaging hashing loop over %d candidates with %d workers. Stay tight." % (len(elements), workers))
+        elements = None
+        try:
+            elements = self.generate_combinations()
+        except KeyboardInterrupt:
+            error("User has interrupted combinations generation phase.")
+            warning("Proceeding with collected elements instead of their combinations")
+            elements = self.elements
 
-        error("Not implemented yet")
-        return False
+        if len(elements) == 0:
+            error("No input data to work on, no generated dictionary")
+            return False
 
-        #stopevent = multiprocessing.Event()
-        #result = multiprocessing.Value(c_char_p, '')
-        #parmap.map(HashCollider._worker, elements, stopevent, result, processes=workers)
+        warning("Engaging hashing loop over %d candidates with %d workers. Stay tight." % (len(elements), WORKERS))
 
-        #info("[+] Got it: %s" % self.print_result(result.value))    
+        pool = multiprocessing.Pool(WORKERS, init_worker)
+        manager = multiprocessing.Manager()
+        stopevent = manager.Event()
+        func = partial(hash_collider_worker, stopevent, self.hasher)
+        try:
+            results = pool.map_async(func, elements)
+            pool.close()
 
-        #return result.value
+            while True:
+                if results.ready():
+                    break
+                sys.stdout.write("\r{0:%} done.".format((float(results._number_left)/float(len(elements)))))
+                time.sleep(0.5)
+
+        except KeyboardInterrupt:
+            pool.terminate()
+            pool.join()
+            error("User has interrupted collisions loop.")
+            return False
+
+        result = False
+        for r in results.get():
+            if r:
+                result = r
+
+        if result:
+            info("[+] Got it: %s" % self.print_result(result))    
+        else:
+            warning("Could not find a collision from provided data.")
+
+        return result
         
 
 
 def main():
+    global main_hasher
+
     info('\n\tHash-Collider - looking for hash collision from permutations of input data')
     info('\tMariusz B. / mgeeky, 2016\n')
 
@@ -214,11 +269,13 @@ def main():
         sys.exit(0)
 
     data = sys.argv[1]
-    collider = HashCollider(data)
+    main_hasher = Hasher(data)
+    collider = HashCollider(main_hasher)
 
     d = raw_input("Data: ")
     collider.feed(d)
     collider.collide()
+
 
 if __name__ == '__main__':
     main()
