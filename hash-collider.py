@@ -199,16 +199,24 @@ class HashCollider:
         
         num = 0
         self.tmpfile.seek(0,0)
+
         for comb in permutations(self.elements):
             for p in comb:
                 for sep in self.separators:
                     num += 1
                     element = sep.join([str(c) for c in p]) + '\n'
+                    
+                    # Tried to optimize this particular way of storing elements
+                    # by firstly buffering them into a list of size being 1% of total
+                    # samples count or 1500, and then using join storing them at once,
+                    # but this resulted in suffered performance by more than 40%.
                     self.tmpfile.write(element)
 
-            self.tmpfile.flush()
+                self.tmpfile.flush()
 
+        self.tmpfile.write(''.join(buf))
         self.tmpfile.flush()
+
         return num
 
     def print_result(self, data):
