@@ -6,12 +6,15 @@ import urllib
 import signal
 import hashlib
 import tempfile
+import datetime
 import itertools
 import multiprocessing
 from commons import *
 from myexceptions import *
 from functools import partial
+from timeit import default_timer as timer
 from multiprocessing.managers import BaseManager
+
 
 try:
     import importlib
@@ -187,6 +190,10 @@ class HashCollider:
 
     def number_of_permutations(self):
         # Permutations without repetitions
+        # It goes like this:
+        #   for i..n do
+        #       sum := sum + V(n, i)
+        #
         items = self.elements
         def V(n, k):
             return math.factorial(n)/math.factorial(n-k)
@@ -214,7 +221,6 @@ class HashCollider:
 
                 self.tmpfile.flush()
 
-        self.tmpfile.write(''.join(buf))
         self.tmpfile.flush()
 
         return num
@@ -223,12 +229,17 @@ class HashCollider:
         return '%s("%s") == "%s"' % (self.hasher.hashing_algo().name, data, self.hasher.data)
 
     def collide(self):
-        warning("Generating about %d samples out of %d elements" % \
+        info("Generating about %d samples out of %d elements..." % \
             (len(self.separators) * self.number_of_permutations(), len(self.elements)))
 
         generated_samples = 0
         try:
+            before1 = timer()
             generated_samples = self.generate_combinations()
+            dur1 = timer() - before1
+            dbg("Samples generation phase took {}.{:03d}".format(
+                str(datetime.timedelta(seconds=int(dur1))), int((dur1 % 1)*1000)))
+
         except KeyboardInterrupt:
             error("User has interrupted combinations generation phase.")
             warning("Proceeding with collected elements instead of their combinations")
@@ -237,7 +248,8 @@ class HashCollider:
             error("No input data to work on, no generated dictionary")
             return False
 
-        warning("Engaging hashing loop over %d candidates with %d workers. Stay tight." % (generated_samples, WORKERS))
+        info("\nEngaging hashing loop over %d candidates with %d workers. Stay tight." 
+            % (generated_samples, WORKERS))
 
         pool = multiprocessing.Pool(WORKERS, init_worker)
         manager = multiprocessing.Manager()
@@ -250,6 +262,7 @@ class HashCollider:
         taskscount = 0
         finished_tasks = 0
 
+        before2 = timer()
         try:
             while processed_elements < generated_samples:
 
@@ -307,9 +320,13 @@ class HashCollider:
             return False
 
         if result:
-            info("\n[+] Got it:\n\t%s" % (self.print_result(result)))
+            warning("\nGot it:\n\t%s" % (self.print_result(result)))
         else:
             warning("Could not find a collision from provided data.")
+
+        dur2 = timer() - before2
+        dbg("\nHash collision lookup took in total: {}.{:03d}".format(
+            str(datetime.timedelta(seconds=int(dur2))), int((dur2 % 1)*1000)))
 
         return result
         
@@ -329,10 +346,17 @@ def main():
     main_hasher = Hasher(data)
     collider = HashCollider(main_hasher)
 
-    d = raw_input("Data: ")
     collider.feed(d)
     try:
+        info("Hash-colliding started at: " + datetime.datetime.now().strftime("%A, %d. %B %Y %I:%M%p"))
+
+        before = timer()
         collider.collide()
+        info("\nHash-colliding finished at: " + datetime.datetime.now().strftime("%A, %d. %B %Y %I:%M%p"))
+
+        dur = timer() - before
+        info("\tProgram took roughly: {}.{:03d}".format(
+            str(datetime.timedelta(seconds=int(dur))), int((dur % 1)*1000)))
     except KeyboardInterrupt:
         warning("User has interrupted hash collisions process.")
 
