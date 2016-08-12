@@ -32,20 +32,18 @@ def init_worker():
 def hash_collider_worker(stopevent, hasher, inputs):
     if not inputs or len(inputs) == 0:
         return False
+    if stopevent.is_set():
+        return False
+    if hasher.check(inputs):
+        stopevent.set()
+        return inputs
 
-    for i in range(len(inputs)):
-        inp = inputs[i]
-        if stopevent.is_set():
-            return False
-        if hasher.check(inp):
-            stopevent.set()
-            return inp
     return False
 
 class Hasher:
     hashlens = {}
     hashing_algo = None
-    incr_lock = multiprocessing.Lock()
+    lock = multiprocessing.Lock()
     checks = 0
     
     def __init__(self, data):
@@ -72,7 +70,7 @@ class Hasher:
         if not self.hashing_algo:
             for a, l in self.hashlens.items():
                 if l == len(self.data):
-                    with self.incr_lock:
+                    with self.lock:
                         self.hashing_algo = getattr(hashlib, a)
         return self.hashing_algo
 
@@ -80,8 +78,6 @@ class Hasher:
         return self.get_algo()(data).hexdigest()
 
     def check(self, data):
-        with self.incr_lock:
-            self.checks += 1
         return self.data == self.hashit(data)
 
 
@@ -203,19 +199,23 @@ class HashCollider:
         
         num = 0
         self.tmpfile.seek(0,0)
+        f = open('/tmp/test', 'w')
         for comb in permutations(self.elements):
             for p in comb:
                 for sep in self.separators:
                     num += 1
-                    self.tmpfile.write(sep.join([str(c) for c in p]) + '\n')
+                    element = sep.join([str(c) for c in p]) + '\n'
+                    self.tmpfile.write(element)
+                    f.write(element)
 
             self.tmpfile.flush()
 
+        f.close()
         self.tmpfile.flush()
         return num
 
     def print_result(self, data):
-        return '%s("%s") == "%s"' % (self.hasher.hashing_algo().name, data, self.data)
+        return '%s("%s") == "%s"' % (self.hasher.hashing_algo().name, data, self.hasher.data)
 
     def collide(self):
         warning("Generating about %d samples out of %d elements" % \
@@ -238,20 +238,21 @@ class HashCollider:
         manager = multiprocessing.Manager()
         stopevent = manager.Event()
         func = partial(hash_collider_worker, stopevent, self.hasher)
-        try:
-            processed_elements = 0
-            step = int(generated_samples / 20000)
-            taskssum = 0
-            taskscount = 0
-            finished_tasks = 0
 
+        processed_elements = 0
+        step = max(5000, int(generated_samples / 20000))
+        taskssum = 0
+        taskscount = 0
+        finished_tasks = 0
+
+        try:
             while processed_elements < generated_samples:
 
                 elements = []
                 self.tmpfile.seek(0,0)
 
                 for i, line in enumerate(self.tmpfile):
-                    if not line:
+                    if len(line.strip()) == 0:
                         continue
 
                     if i >= processed_elements and i < (processed_elements + step):
@@ -263,7 +264,7 @@ class HashCollider:
                         break
 
                 if len(elements) == 0:
-                    dbg("\nRan out of samples. Fininshing.")
+                    #dbg("\nRan out of samples. Fininshing.")
                     break
 
                 results = pool.map_async(func, elements)
@@ -289,10 +290,9 @@ class HashCollider:
                         result = r
 
                 if result:
-                    dbg("Found collision in {} task.".format(taskssum))
+                    sys.stdout.write('\n')
+                    sys.stdout.flush()
                     break
-
-            dbg("Performed %d tasks." % taskssum)
 
         except KeyboardInterrupt:
             stopevent.set()
@@ -301,9 +301,8 @@ class HashCollider:
             error("User has interrupted collisions loop.")
             return False
 
-
         if result:
-            info("[+] Got it: %s" % self.print_result(result))    
+            info("\n[+] Got it:\n\t%s" % (self.print_result(result)))
         else:
             warning("Could not find a collision from provided data.")
 
@@ -327,7 +326,10 @@ def main():
 
     d = raw_input("Data: ")
     collider.feed(d)
-    collider.collide()
+    try:
+        collider.collide()
+    except KeyboardInterrupt:
+        warning("User has interrupted hash collisions process.")
 
 
 if __name__ == '__main__':
