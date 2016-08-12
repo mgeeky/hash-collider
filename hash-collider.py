@@ -202,12 +202,16 @@ class HashCollider:
                 yield itertools.permutations(items, i)
         
         num = 0
+        self.tmpfile.seek(0,0)
         for comb in permutations(self.elements):
             for p in comb:
                 for sep in self.separators:
                     num += 1
                     self.tmpfile.write(sep.join([str(c) for c in p]) + '\n')
 
+            self.tmpfile.flush()
+
+        self.tmpfile.flush()
         return num
 
     def print_result(self, data):
@@ -236,21 +240,32 @@ class HashCollider:
         func = partial(hash_collider_worker, stopevent, self.hasher)
         try:
             processed_elements = 0
-            step = generated_samples * 0.01 # step every 1%
+            step = int(generated_samples / 20000)
             taskssum = 0
             taskscount = 0
             finished_tasks = 0
 
             while processed_elements < generated_samples:
+
                 elements = []
+                self.tmpfile.seek(0,0)
+
                 for i, line in enumerate(self.tmpfile):
-                    print i, line
+                    if not line:
+                        continue
+
                     if i >= processed_elements and i < (processed_elements + step):
                         # [:-1] stands for stripping only the very last LF 
                         # that was appended by the generator
                         elements.append(line[:-1])
 
-                assert len(elements) > 0, "Failed at slicing subset of generated samples."
+                    if i >= (processed_elements + step):
+                        break
+
+                if len(elements) == 0:
+                    dbg("\nRan out of samples. Fininshing.")
+                    break
+
                 results = pool.map_async(func, elements)
 
                 numleft = results._number_left
@@ -263,10 +278,21 @@ class HashCollider:
                         break
                     left = finished_tasks + numleft
                     perc = float(left) / float(total) * 100.0
-                    sys.stdout.write("\r{:3.5f}% done (left={}, tasks={}).".format(perc, left, total))
+                    sys.stdout.write("\r{:3.5f}% done (task={}, total={}).".format(perc, left, total))
 
                 processed_elements += step
                 finished_tasks += numleft
+
+                result = False
+                for r in results.get():
+                    if r:
+                        result = r
+
+                if result:
+                    dbg("Found collision in {} task.".format(taskssum))
+                    break
+
+            dbg("Performed %d tasks." % taskssum)
 
         except KeyboardInterrupt:
             stopevent.set()
@@ -275,10 +301,6 @@ class HashCollider:
             error("User has interrupted collisions loop.")
             return False
 
-        result = False
-        for r in results.get():
-            if r:
-                result = r
 
         if result:
             info("[+] Got it: %s" % self.print_result(result))    
