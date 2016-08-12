@@ -5,6 +5,7 @@ import time
 import urllib
 import signal
 import hashlib
+import tempfile
 import itertools
 import multiprocessing
 from commons import *
@@ -86,13 +87,18 @@ class Hasher:
 
 class HashCollider:
     hasher = None
-    elements = set()
     parsers = {}
+    elements = set()
     separators = ['', '+', '|', '.']
+    tmpfile = None
 
-    def __init__(self, hasher):
+    def __init__(self, hasher, dictonary_outfile=None):
         self.hasher = hasher
         self.register_parsers()
+        if dictonary_outfile == None:
+            self.tmpfile = tempfile.NamedTemporaryFile(delete=True)
+        else:
+            self.tmpfile = open(dictonary_outfile, 'w+')
         dbg("Dealing with data hashed using %s" % self.hasher.hashing_algo().name )
 
     def load_parser(self, parser):
@@ -105,7 +111,6 @@ class HashCollider:
 
         parser_name = os.path.splitext(os.path.basename(parser))[0].lower()
         if not parser_name in [x.lower() for x in self.parsers.keys()]:
-            dbg("Loading parser: '%s'" % parser)
             mod = import_file(parser)
             for objs in mod.__dict__.keys():
                 if 'Parser' in objs:
@@ -153,21 +158,22 @@ class HashCollider:
             warning("Could not parse input data.")
             return False
             
-        l1 = len(self.elements)
-
+        newelements = set()
         if isinstance(parsed, list) or isinstance(parsed, tuple):
-            self.elements.update(parsed)
+            newelements.update(parsed)
         elif isinstance(parsed, basestring) or isinstance(parsed, int) or isinstance(parsed, float):
-            self.elements.add(str(parsed))
+            newelements.add(str(parsed))
         elif isinstance(parsed, dict):
             for k, v in parsed.items():
-                self.elements.add(k)
-                self.elements.add(v)
+                newelements.add(k)
+                newelements.add(v)
         else:
             assert False, "Unrecognized `parsed` data type."
 
-        dbg("Fed collider with %d new elements" % (len(self.elements) - l1))
-        dbg("\n--- Elements list:\n\t%s\n---\n" % self.print_elements())
+        dbg("Fed collider with %d new elements" % (len(newelements)))
+
+        self.elements.update(newelements)
+        dbg("Entire elements list:\n---\n\t%s\n---\n" % self.print_elements())
 
         return True
 
@@ -195,13 +201,14 @@ class HashCollider:
             for i in range(len(items)):
                 yield itertools.permutations(items, i)
         
-        elements = set()
+        num = 0
         for comb in permutations(self.elements):
             for p in comb:
                 for sep in self.separators:
-                    elements.add(sep.join([str(c) for c in p]))
+                    num += 1
+                    self.tmpfile.write(sep.join([str(c) for c in p]) + '\n')
 
-        return elements
+        return num
 
     def print_result(self, data):
         return '%s("%s") == "%s"' % (self.hasher.hashing_algo().name, data, self.data)
@@ -210,35 +217,59 @@ class HashCollider:
         warning("Generating about %d samples out of %d elements" % \
             (len(self.separators) * self.number_of_permutations(), len(self.elements)))
 
-        elements = None
+        generated_samples = 0
         try:
-            elements = self.generate_combinations()
+            generated_samples = self.generate_combinations()
         except KeyboardInterrupt:
             error("User has interrupted combinations generation phase.")
             warning("Proceeding with collected elements instead of their combinations")
-            elements = self.elements
 
-        if len(elements) == 0:
+        if generated_samples == 0:
             error("No input data to work on, no generated dictionary")
             return False
 
-        warning("Engaging hashing loop over %d candidates with %d workers. Stay tight." % (len(elements), WORKERS))
+        warning("Engaging hashing loop over %d candidates with %d workers. Stay tight." % (generated_samples, WORKERS))
 
         pool = multiprocessing.Pool(WORKERS, init_worker)
         manager = multiprocessing.Manager()
         stopevent = manager.Event()
         func = partial(hash_collider_worker, stopevent, self.hasher)
         try:
-            results = pool.map_async(func, elements)
-            pool.close()
+            processed_elements = 0
+            step = generated_samples * 0.01 # step every 1%
+            taskssum = 0
+            taskscount = 0
+            finished_tasks = 0
 
-            while True:
-                if results.ready():
-                    break
-                sys.stdout.write("\r{0:%} done.".format((float(results._number_left)/float(len(elements)))))
-                time.sleep(0.5)
+            while processed_elements < generated_samples:
+                elements = []
+                for i, line in enumerate(self.tmpfile):
+                    print i, line
+                    if i >= processed_elements and i < (processed_elements + step):
+                        # [:-1] stands for stripping only the very last LF 
+                        # that was appended by the generator
+                        elements.append(line[:-1])
+
+                assert len(elements) > 0, "Failed at slicing subset of generated samples."
+                results = pool.map_async(func, elements)
+
+                numleft = results._number_left
+                taskssum += numleft
+                taskscount += 1
+                total = (taskssum / taskscount) * (generated_samples / step)
+
+                while True:
+                    if results.ready():
+                        break
+                    left = finished_tasks + numleft
+                    perc = float(left) / float(total) * 100.0
+                    sys.stdout.write("\r{:3.5f}% done (left={}, tasks={}).".format(perc, left, total))
+
+                processed_elements += step
+                finished_tasks += numleft
 
         except KeyboardInterrupt:
+            stopevent.set()
             pool.terminate()
             pool.join()
             error("User has interrupted collisions loop.")
