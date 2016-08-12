@@ -311,8 +311,8 @@ class HashCollider:
 def main():
     global main_hasher
 
-    info('\n\tHash-Collider - looking for hash collision from permutations of input data')
-    info('\tMariusz B. / mgeeky, 2016\n')
+    info('\n\t\033[0;32mHash-Collider - looking for hash collision from permutations of input data\033[1;0m')
+    info('\033[0;33m\tMariusz B. / mgeeky, 2016\033[1;0m\n')
 
     if len(sys.argv) < 2:
         warning('Usage: hash-collider <hash>')
