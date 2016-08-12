@@ -4,25 +4,16 @@ import math
 import time
 import urllib
 import signal
-import hashlib
 import tempfile
 import datetime
 import itertools
-import multiprocessing
+from hasher import *
 from commons import *
 from myexceptions import *
 from functools import partial
 from timeit import default_timer as timer
 from multiprocessing.managers import BaseManager
 
-
-try:
-    import importlib
-except ImportError:
-    raise ImportError("Could not import `importlib` module. Try with: pip install importlib")
-
-WORKERS = multiprocessing.cpu_count() * 4
-main_hasher = None
 
 def init_worker():
     # http://stackoverflow.com/a/6191991
@@ -43,48 +34,9 @@ def hash_collider_worker(stopevent, hasher, inputs):
 
     return False
 
-class Hasher:
-    hashlens = {}
-    hashing_algo = None
-    lock = multiprocessing.Lock()
-    checks = 0
-    
-    def __init__(self, data):
-        self.init_hash_lens()
-        self.set_hash(data)
-
-    def init_hash_lens(self):
-        for algo in hashlib.algorithms:
-            self.hashlens[algo] = len(getattr(hashlib, algo)('test').hexdigest())
-
-    def get_hash(self):
-        return self.data
-
-    def set_hash(self, data):
-        self.data = data
-        self.hashing_algo = None
-        self.get_algo()
-        if DEBUG:
-            for a, l in self.hashlens.items():
-                if l == len(self.data):
-                    dbg('Specified hash seems to be: %s' % a)
-
-    def get_algo(self):
-        if not self.hashing_algo:
-            for a, l in self.hashlens.items():
-                if l == len(self.data):
-                    with self.lock:
-                        self.hashing_algo = getattr(hashlib, a)
-        return self.hashing_algo
-
-    def hashit(self, data):
-        return self.get_algo()(data).hexdigest()
-
-    def check(self, data):
-        return self.data == self.hashit(data)
-
 
 class HashCollider:
+
     hasher = None
     parsers = {}
     elements = set()
@@ -99,6 +51,7 @@ class HashCollider:
         else:
             self.tmpfile = open(dictonary_outfile, 'w+')
         dbg("Dealing with data hashed using %s" % self.hasher.hashing_algo().name )
+
 
     def load_parser(self, parser):
         def import_file(full_path_to_module):
@@ -144,11 +97,13 @@ class HashCollider:
             else:
                 _register_parser(parsers)
 
+
     def print_elements(self):
         out = ''
         for e in self.elements:
             out += '"{}", '.format(e)
         return out
+
 
     def feed(self, element, parser=None):
         try:
@@ -188,6 +143,7 @@ class HashCollider:
         else:
             return parser1.parse(data)
 
+
     def number_of_permutations(self):
         # Permutations without repetitions
         # It goes like this:
@@ -198,6 +154,7 @@ class HashCollider:
         def V(n, k):
             return math.factorial(n)/math.factorial(n-k)
         return sum(map(lambda x: V(len(items), x), range(len(items))))
+
 
     def generate_combinations(self):
         def permutations(items):
@@ -225,10 +182,13 @@ class HashCollider:
 
         return num
 
+
     def print_result(self, data):
         return '%s("%s") == "%s"' % (self.hasher.hashing_algo().name, data, self.hasher.data)
 
-    def collide(self):
+
+    def prepare_dictonary_file(self):
+
         info("Generating about %d samples out of %d elements..." % \
             (len(self.separators) * self.number_of_permutations(), len(self.elements)))
 
@@ -244,8 +204,25 @@ class HashCollider:
             error("User has interrupted combinations generation phase.")
             warning("Proceeding with collected elements instead of their combinations")
 
+        except IOError, e:
+            if 'No space left on device' in str(e):
+                error("Couldn't generate an entire dictonary file. Quitting...")
+                error("Please specify in options a different path for working file.")
+                return False
+            else:
+                raise
+
         if generated_samples == 0:
             error("No input data to work on, no generated dictionary")
+            return False
+
+        return generated_samples
+
+
+    def collide(self):
+
+        generated_samples = self.prepare_dictonary_file()
+        if not generated_samples:
             return False
 
         info("\nEngaging hashing loop over %d candidates with %d workers. Stay tight." 
@@ -346,6 +323,7 @@ def main():
     main_hasher = Hasher(data)
     collider = HashCollider(main_hasher)
 
+    d = raw_input("Data: ")
     collider.feed(d)
     try:
         info("Hash-colliding started at: " + datetime.datetime.now().strftime("%A, %d. %B %Y %I:%M%p"))
