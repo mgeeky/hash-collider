@@ -199,18 +199,15 @@ class HashCollider:
         
         num = 0
         self.tmpfile.seek(0,0)
-        f = open('/tmp/test', 'w')
         for comb in permutations(self.elements):
             for p in comb:
                 for sep in self.separators:
                     num += 1
                     element = sep.join([str(c) for c in p]) + '\n'
                     self.tmpfile.write(element)
-                    f.write(element)
 
             self.tmpfile.flush()
 
-        f.close()
         self.tmpfile.flush()
         return num
 
