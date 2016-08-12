@@ -10,7 +10,7 @@ class DateTimestampParser:
     def check(self, data):
         return False
 
-    def parse(self, data):
+    def parse(self, data, more=False):
         return None
 
 
