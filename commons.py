@@ -13,12 +13,12 @@ def info(txt):
     sys.stderr.write(txt + '\n')
 
 def warning(txt):
-    info('[?] ' + txt)
+    info("\033[1;35m[?] %s\033[1;0m" % txt)
 
 def error(txt):
-    info('[!] ' + txt)
+    info("\033[1;41m[!] %s\033[1;0m" % txt)
 
 def dbg(txt):
     if DEBUG:
-        info('[dbg] '+txt)
+        info("\033[1;32m[dbg] %s\033[1;0m" % txt)
 

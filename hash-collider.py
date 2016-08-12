@@ -50,7 +50,6 @@ class HashCollider:
             self.tmpfile = tempfile.NamedTemporaryFile(delete=True)
         else:
             self.tmpfile = open(dictonary_outfile, 'w+')
-        dbg("Dealing with data hashed using %s" % self.hasher.hashing_algo().name )
 
 
     def load_parser(self, parser):
@@ -297,7 +296,7 @@ class HashCollider:
             return False
 
         if result:
-            warning("\nGot it:\n\t%s" % (self.print_result(result)))
+            info("\n\033[0;32m[+] FOUND COLLISION:\033[1;0m\n\t\033[0;33m%s\033[1;0m" % (self.print_result(result)))
         else:
             warning("Could not find a collision from provided data.")
 
