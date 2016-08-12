@@ -49,6 +49,7 @@ class HashCollider:
         if dictonary_outfile == None:
             self.tmpfile = tempfile.NamedTemporaryFile(delete=True)
         else:
+            dbg("Using custom provided file as working storage = '%s'" % dictonary_outfile)
             self.tmpfile = open(dictonary_outfile, 'w+')
 
 
@@ -161,6 +162,8 @@ class HashCollider:
                 yield itertools.permutations(items, i)
         
         num = 0
+        to_generate = self.number_of_permutations()
+        step = max(to_generate / 20000, 20000)
         self.tmpfile.seek(0,0)
 
         for comb in permutations(self.elements):
@@ -168,6 +171,9 @@ class HashCollider:
                 for sep in self.separators:
                     num += 1
                     element = sep.join([str(c) for c in p]) + '\n'
+
+                    if num % step == 0:
+                        sys.stdout.write("\r{:3.5f}% generated so far...".format(100 * float(num) / float(to_generate)))
                     
                     # Tried to optimize this particular way of storing elements
                     # by firstly buffering them into a list of size being 1% of total
@@ -179,6 +185,7 @@ class HashCollider:
 
         self.tmpfile.flush()
 
+        sys.stdout.write('\n')
         return num
 
 
@@ -320,7 +327,10 @@ def main():
 
     data = sys.argv[1]
     main_hasher = Hasher(data)
-    collider = HashCollider(main_hasher)
+
+    fil = '/root/vmshared/out.txt'
+    #fil = None
+    collider = HashCollider(main_hasher, fil)
 
     d = raw_input("Data: ")
     collider.feed(d)
