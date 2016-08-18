@@ -48,6 +48,7 @@ class HashCollider:
         self.register_parsers()
         if dictonary_outfile == None:
             self.tmpfile = tempfile.NamedTemporaryFile(delete=True)
+            dbg('Created temporary file: "%s"' % self.tmpfile.name)
         else:
             dbg("Using custom provided file as working storage = '%s'" % dictonary_outfile)
             self.tmpfile = open(dictonary_outfile, 'w+')
@@ -273,7 +274,9 @@ class HashCollider:
                 numleft = results._number_left
                 taskssum += numleft
                 taskscount += 1
-                total = (taskssum / taskscount) * (generated_samples / step)
+                total = (float(taskssum) / taskscount * float(generated_samples) / step)
+
+                assert total > 0, "Something wrong with `total` parameter"
 
                 while True:
                     if results.ready():
@@ -291,8 +294,6 @@ class HashCollider:
                         result = r
 
                 if result:
-                    sys.stdout.write('\n')
-                    sys.stdout.flush()
                     break
 
         except KeyboardInterrupt:
@@ -302,6 +303,8 @@ class HashCollider:
             error("User has interrupted collisions loop.")
             return False
 
+        sys.stdout.write('\n')
+        sys.stdout.flush()
         if result:
             info("\n\033[0;32m[+] FOUND COLLISION:\033[1;0m\n\t\033[0;33m%s\033[1;0m" % (self.print_result(result)))
         else:
@@ -328,8 +331,7 @@ def main():
     data = sys.argv[1]
     main_hasher = Hasher(data)
 
-    fil = '/root/vmshared/out.txt'
-    #fil = None
+    fil = None
     collider = HashCollider(main_hasher, fil)
 
     d = raw_input("Data: ")
