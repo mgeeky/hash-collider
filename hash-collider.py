@@ -229,7 +229,7 @@ class HashCollider:
     def collide(self):
 
         generated_samples = self.prepare_dictonary_file()
-        if not generated_samples:
+        if not generated_samples or generated_samples == 0:
             return False
 
         info("\nEngaging hashing loop over %d candidates with %d workers. Stay tight." 
@@ -241,7 +241,7 @@ class HashCollider:
         func = partial(hash_collider_worker, stopevent, self.hasher)
 
         processed_elements = 0
-        step = max(5000, int(generated_samples / 20000))
+        step = min(generated_samples, max(5000, int(generated_samples / 20000)))
         taskssum = 0
         taskscount = 0
         finished_tasks = 0
@@ -249,7 +249,6 @@ class HashCollider:
         before2 = timer()
         try:
             while processed_elements < generated_samples:
-
                 elements = []
                 self.tmpfile.seek(0,0)
 
@@ -274,16 +273,16 @@ class HashCollider:
                 numleft = results._number_left
                 taskssum += numleft
                 taskscount += 1
-                total = (float(taskssum) / taskscount * float(generated_samples) / step)
-
+                total = int(float(taskssum) / taskscount * float(generated_samples) / step)
                 assert total > 0, "Something wrong with `total` parameter"
 
                 while True:
                     if results.ready():
                         break
-                    left = finished_tasks + numleft
-                    perc = float(left) / float(total) * 100.0
-                    sys.stdout.write("\r{:3.5f}% done (task={}, total={}).".format(perc, left, total))
+                    done = finished_tasks + numleft
+                    assert done <= total, "Percentage computation is not working properly"
+                    perc = float(done) / total * 100.0
+                    sys.stdout.write("\r{:3.5f}% done (task={}, total={}).".format(perc, done, total))
 
                 processed_elements += step
                 finished_tasks += numleft
@@ -294,6 +293,7 @@ class HashCollider:
                         result = r
 
                 if result:
+                    dbg("Result has been found")
                     break
 
         except KeyboardInterrupt:
